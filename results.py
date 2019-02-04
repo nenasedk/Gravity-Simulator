@@ -1,8 +1,11 @@
 from gravity import *
 import numpy as np
 import matplotlib.pyplot as plt
+import time as t
 #import os
 #import sys
+"""
+soft_scale = 100.0
 def plummerdens(d0,r0,r):
     d = d0/(1 + (r**2 / (20 * r0**2)))
     return d
@@ -13,30 +16,58 @@ def Hernquist(M,a,r):
 
 nBody = DirectNBody()
 nBody.set_variables()
-nBody.set_nParticles(100)
+nBody.set_nParticles(1000)
 polar = nBody.cart_to_sphere(nBody.posn)
 eps = np.std(polar[:,0])
 
+t_start = t.time()
 #force = nBody.direct_force(nBody.mass,nBody.posn,eps)
-force2 = nBody.direct_force_fast(nBody.mass,nBody.posn,eps)
+force2 = nBody.direct_force_fast(nBody.mass,nBody.posn,eps*soft_scale)
+t_end = t.time()
 
-myFile = open("small_force.txt",'w+')
-"""
+
+myFile = open("small_force_" + str(nBody.nParticles) + "_" + str(soft_scale) + ".txt",'w+')
+myFile.write(str(nBody.nParticles) + "," + str(t_end - t_start) + '\n')
 for i in range(0,len(force2)):
     ostring = str(force2[i][0]) + "," + str(force2[i][1]) + "," + str(force2[i][2]) + "," +str(polar[i][0]) + "," + str(nBody.posn[i][0]) + ","+ str(nBody.posn[i][1]) + ","+ str(nBody.posn[i][2]) + '\n'
     myFile.write(ostring)
 myFile.close()
 """
-"""
-data = np.genfromtxt("force.txt",delimiter = ',')
 
-force = np.array([data[:,0],data[:,1],data[:,2]]).T
-radius = data[:,3]
-f = -1*np.linalg.norm(force,axis = 1)
-"""
 fig,ax = plt.subplots(figsize = (12,8))
-ax.scatter(polar[:,0][0:len(force2)],np.linalg.norm(force2,axis = 1),marker = '.', s = 2,label = "Hernquist Model",linewidth = 3)
-ax.set_xlim(0,40)
+filedir = "1sigma/"
+time = []
+n = []
+for filename in os.listdir(filedir):
+    with open(filedir + filename) as f:
+        header = list(map(float,f.readline().split(',')))
+        f.close()
+    #sp = filename.split('_')
+    #sp2 = sp[3].split('t')
+    data = np.genfromtxt(filedir+filename,delimiter = ',',skip_header =1)
+   
+    force = np.array([data[:,0],data[:,1],data[:,2]]).T
+    n.append(header[0])
+    time.append(header[1])
+        
+    radius = data[:,3]
+    #f = -1*np.linalg.norm(force2,axis = 1)
+    #ax.scatter(radius,np.linalg.norm(force,axis = 1),marker = '.', s = 2,label = str(len(force)) + " Particles",linewidth = 3)
+    #ax.scatter(radius,np.linalg.norm(force,axis = 1),marker = '.', s = 2,label =  sp2[0][:-1],linewidth = 3)
+y = [x for _,x in sorted(zip(n,time))]
+
+fit = np.polyfit(np.array(sorted(n)),np.array(y),2)
+fitfn = np.poly1d(fit)
+ti = np.linspace(10.0,max(n),500000)
+ax.scatter(sorted(n),y,marker = '.',s = 25,linewidth = 2, c = u'#ff7f0e')
+ax.plot(ti,fitfn(ti))
+#ax.set_xlim(0,40)
+ax.set_yscale("log")
+ax.set_ylim(1e-4,5e5)
+ax.set_title("O(N$^{2}$) runtime for direct n-body force calculation with quadratic fit")
+ax.set_xlabel("Number of Particles")
+ax.set_ylabel("Run time [s]")
+#ax.legend(title = "Softening",loc = 'upper right')
 plt.show()
 
 '''
