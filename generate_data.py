@@ -1,7 +1,7 @@
 import numpy as np
-nPart = 100
+nPart = 10
 
-mass = (np.random.randn(nPart)+3)/3.0
+mass = np.random.randn(nPart)*10
 x = np.random.randn(nPart)*10 +100
 y = np.random.randn(nPart)*10 +100
 z = np.random.randn(nPart)*10 +100

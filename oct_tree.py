@@ -1,9 +1,10 @@
 import numpy as np
 class Particle:
-    def __init__(self,posn,velocity,mass):
+    def __init__(self,posn,velocity,mass,accel = np.array([0.0,0.0,0.0])):
         self.posn = posn
         self.velocity = velocity
         self.mass = mass
+        self.accel = accel
         return
     
 class Node:
@@ -46,10 +47,8 @@ class OctTree():
 
         
     def buildTree(self,particles):
-        i = 0
         for p in particles:
             self.insertParticle(self.root,self.size,self.root, p)
-            i++
         return
     
     def addNode(self,posn,size,particle,parent = None):
