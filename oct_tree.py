@@ -1,4 +1,7 @@
 import numpy as np
+import sys
+sys.setrecursionlimit(10000)
+
 class Particle:
     def __init__(self,posn,velocity,mass,accel = None,error = None):
         self.posn = posn

@@ -2,10 +2,10 @@ import numpy as np
 from gravity import *
 from oct_tree import *
 import matplotlib.pyplot as plt
-ORDER = 3
-THETA = 1.0
+ORDER = 4
+THETA = 0.01
 myTree = FMM("./","data.ascii")
-plist = myTree.buildParticleList(500)
+plist = myTree.buildParticleList(5000)
 myTree.buildTree(plist)
 myTree.multipoleBuild(myTree.tree.root,ORDER)
 myTree.downwardExpansionTree(myTree.tree.root,THETA,ORDER)
