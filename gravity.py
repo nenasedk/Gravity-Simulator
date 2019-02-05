@@ -4,6 +4,7 @@ from numpy.linalg import norm
 from scipy import special
 import os 
 import sys
+sys.setrecursionlimit(2000)
 
 class Gravity:
     def __init__(self):
@@ -102,9 +103,9 @@ class Gravity:
         M_t = np.sum(mass) # Compute total mass
         coords = self.cart_to_sphere(posn)
         # Sort by radius
-        coordinds = coords[:,0].argsort() 
-        s_coords = coords[:,0][coordinds[::0]]
-        s_mass = mass[coordinds[::0]]
+        coordinds = coords[:,0].argsort()
+        s_coords = coords[:,0][coordinds]
+        s_mass = mass[coordinds]
         m = 0.0
         i = 0 
         while(m<M_t/2): # Find Half-Mass Radius
@@ -112,7 +113,7 @@ class Gravity:
             i += 1            
         r_half = s_coords[i]
         V_p = np.sqrt(M_t/(2.0 * r_half)) # Velocity
-        return r_half/v_p # Return crossing time.
+        return r_half/V_p # Return crossing time.
     
     def cart_to_sphere(self,data):
         if len(data) < 4:
@@ -325,21 +326,39 @@ class FMM(Gravity):
     def set_size(self,s):
         self.size = s
         
-    def buildParticleList(self):
-        header,data = self.read_in_data(self.filepath,self.filename)
-        self.nParticles = int(header[0])
-        self.nGasParticles = int(header[1])
-        self.nStarParticles = int(header[2])
-        particles = []
-        self.size = np.max([np.max(data[1]),
-                            np.max(data[2]),
-                            np.max(data[3])])*2.0
-        for i in range(self.nParticles):
-            particles.append(Particle(np.array([data[1][i],data[2][i],data[3][i]]),
-                                      np.array([data[4][i],data[5][i],data[6][i]]),
-                                      data[0][i]))
-        self.soft = data[7]
-        self.pot = data[8]
+    def buildParticleList(self,pNum = None):
+        if pNum:
+            header,data = self.read_in_data(self.filepath,self.filename)
+            self.nParticles = pNum
+            self.nGasParticles = int(header[1])
+            self.nStarParticles = pNum
+            particles = []
+            self.size = np.max([np.max(data[1][0:pNum]),
+                                np.max(data[2][0:pNum]),
+                                np.max(data[3][0:pNum])])*2.0
+            for i in range(self.nParticles):
+                particles.append(Particle(np.array([data[1][i],data[2][i],data[3][i]]),
+                                          np.array([data[4][i],data[5][i],data[6][i]]),
+                                          data[0][i]))
+            self.soft = data[7][0:pNum]
+            self.s_soft = np.mean(data[7][0:pNum]) *10
+            self.pot = data[8][0:pNum]
+        else:
+            header,data = self.read_in_data(self.filepath,self.filename)
+            self.nParticles = int(header[0])
+            self.nGasParticles = int(header[1])
+            self.nStarParticles = int(header[2])
+            particles = []
+            self.size = np.max([np.max(data[1]),
+                                np.max(data[2]),
+                                np.max(data[3])])*2.0
+            for i in range(self.nParticles):
+                particles.append(Particle(np.array([data[1][i],data[2][i],data[3][i]]),
+                                          np.array([data[4][i],data[5][i],data[6][i]]),
+                                          data[0][i]))
+            self.soft = data[7]
+            self.s_soft = np.mean(data[7])
+            self.pot = data[8]
         return particles
 
     """
@@ -350,8 +369,13 @@ class FMM(Gravity):
         self.tree.buildTree(particles)
         return
     
-    def distanceCriterion(self,particle,node,eps):
-        if(node.size/(np.linalg.norm(particle.posn - node.posn)) < eps):
+    def distanceCriterion(self,posn,node,eps):
+        if node.isLeaf:
+            return False
+        if self.tree.checkPosition(node,posn):
+            return False
+        #print (node.size/(np.linalg.norm(particle.posn - node.posn)))
+        if(node.size/(np.linalg.norm(np.array(posn) - np.array(node.posn))) < eps):
             return True
         else:
             return False
@@ -360,9 +384,9 @@ class FMM(Gravity):
     Multipole Functions
     Upward Steps
     """
-    def multipoleBuild(self,node,L,M):
+    def multipoleBuild(self,node,L):
         if node.isLeaf:
-            self.calcMultipoleMoments(node,L,M)
+            self.calcMultipoleMoments(node,L)
             return node
         else:
             node.moments = {}
@@ -370,18 +394,17 @@ class FMM(Gravity):
                 if branch is None:
                     continue
                 #self.multipoleBuild(branch,node,L,M)
-                cnode = self.multipoleBuild(branch,L,M)
+                cnode = self.multipoleBuild(branch,L)
                 #moments.append(self.shiftMultipoleMomement(branch.posn,node.posn, branch.moments))
-                self.shiftMultipoleMoments(node,cnode,L,M)
+                self.shiftMultipoleMoments(node,cnode,L)
                 # multipole expansion to local expansion
             return node
             
-    def calcMultipoleMoments(self,node,L,M):
+    def calcMultipoleMoments(self,node,L):
         node.moments = {}
         for l in range(0,L+1):
             for m in range(-l,l+1):
                 node.moments[(l,m)] = 0.0
-                    
         for l in range(L+1):
             phi_l = 0
             for m in range(-l,l+1):
@@ -393,34 +416,33 @@ class FMM(Gravity):
         for p in node.data:
             r2 = self.cart_to_sphere(p.posn)
             sph = special.sph_harm(m,l,r2[1],r2[2])
-            Q += p.mass * r2[0] * np.conj(sph)
+            Q += p.mass * r2[0]**l * np.conj(sph)
         return Q.real
     
-    def shiftMultipoleMoments(self, parent, child, L, M):
+    def shiftMultipoleMoments(self, parent, child, L):
         #shift_moments = {}
         if parent.moments == {}:
             for l in range(0,L+1):
                 for m in range(-l,l+1):
                     parent.moments[(l,m)] = 0.0
                     
-        polar = self.cart_to_sphere(parent.posn)
-        for l in range(0,L+1):
-            for m in range(-l,l+1):
+        polar = self.cart_to_sphere(np.array(child.posn))
+        for j in range(0,L+1):
+            for k in range(-j,j+1):
                 M_lm = 0.0
-                for j in range(0,l+1):
-                    for k in range(-j,j+1):
-                        #print l,m,j,k,l-j,m-k
+                for n in range(0,j+1):
+                    for m in range(-n,n+1):
                         try:
-                            M_lm += (child.moments[(l-j,m-k)] * 1j**(np.abs(m) - np.abs(k) - np.abs(m-k)) * self.expansionCoeff(l-j,m-k) * child.posn[0]**j * special.sph_harm(-m,l,child.posn[1],child.posn[2]))/self.expansionCoeff(l,m)
+                            M_lm += (child.moments[(j-n,k-m)] * 1j**(np.abs(k) - np.abs(m) - np.abs(k-m)) \
+                                     * self.expansionCoeff(n,m)*self.expansionCoeff(j-n,k-m) \
+                                     * polar[0]**n * special.sph_harm(-m,n,polar[1],polar[2]))\
+                                     /self.expansionCoeff(j,k)
                         except:
                             continue
-                #M_lm = np.sum( [ np.sum ( [ (child.moments[(l-j,m-k)] * 1j**(np.abs(m) - np.abs(k) - np.abs(m-k)) * self.expansionCoeff(l-j,m-k) * child.posn[0]**j * special.sph_harm(-m,l,child.posn[1],child.posn[2]))/self.expansionCoeff(l,m) for k in range(-j,j+1)]) for j in range(0,l)])
-                parent.moments[(l,m)] = M_lm
+                parent.moments[(j,k)] = M_lm
+                #print parent.moments[(j,k)]
         return
-    # return shift
-    #R_lm = (-1)**m * (1/np.math.factorial(l+m))*moments[(l,m)]
-    #S_lm = special.sph_harm(m,l,polar[1],polar[2])
-    
+
     def expansionCoeff(self,n,m):
         return ((-1)**n) / np.sqrt(np.math.factorial(n-m)*np.math.factorial(n+m))
 
@@ -428,78 +450,135 @@ class FMM(Gravity):
     Local Expansions
     Downward Steps
     """        
-    def multipoleExpand(self,node,L,M):
-        if node.isLeaf:
-            return
-        lexp = self.localExpansion(node,L,M)
-        texp = self.shiftLocalExpansion(node,lexp,L,M)
-        for branch in node.branches:
-            if branch is not None:
-                branch.moments = texp
-                self.multipoleExpand(branch,L,M)
+    def multipoleExpand(self,target,nodelist,eps,L):
+        nlist = []
+
+        if target.isLeaf and nodelist == []:
+            #print target.data[0].accel,target.data[0].posn
             return
         
-    def localExpansion(self, node, L, M):
-        inner_exp = {}
+        for node in nodelist:
+            if node is None:
+                continue
+            elif self.posnComp(node.posn,target.posn):
+                for b in target.branches:
+                    if b is not None:
+                        nlist.append(b)
+                continue
+
+            elif target.isLeaf and node.isLeaf:
+                # This is super ugly because I was having issues
+                # with all accels actually being the same array
+                target.data[0].addToAccel(self.directForce(node.data[0],target.data[0]))
+                continue
+            
+            elif self.distanceCriterion(target.posn,node,eps):
+                self.shiftLocalExpansion(target,node,L)
+                continue
+
+            else:
+                for b in node.branches:
+                    if b is not None:
+                        nlist.append(b)
+
+        if target.isLeaf:
+            self.multipoleExpand(target,nlist,eps,L)
+                        
+        else:
+            for tbranch in target.branches:
+                if tbranch is not None:
+                    self.shiftLocalExpansion(tbranch,target,L)
+                    self.multipoleExpand(tbranch,nlist,eps,L)
+
+                
+    def localExpansionMoment(self,target,node, L):
         polar = self.cart_to_sphere(node.posn)
-        
+        if not target.local_expansion:
+            target.local_expansion = {}
+            for l in range(0,L+1):
+                for m in range(-l,l+1):
+                    target.local_expansion[(l,m)] = 0.0
+                    
         for j in range(0,L+1):
             for k in range(-j,j+1):
-                L_kj = np.sum([
-                    np.sum([(node.moments[(n,m)]*1j**((np.abs(k-m)-np.abs(k) - np.abs(m))) *self.expansionCoeff(n,m) * self.expansionCoeff(j,k) * special.sph_harm(m-k,j+n,polar[1],polar[2]))/\
-                            ((-1)**n * self.expansionCoeff(j+n,m-k) * polar[0]**(j+n+1)) for m in range(-n,n+1)]) for n in range(0,j+1)])
-                inner_exp[(j,k)] = L_kj
-        return inner_exp
+                L_kj = 0.0
+                for n in range(0,L+1):
+                    for m in range(-n,n):
+                        try:
+                            L_kj += (node.moments[(n,m)]*1j**((np.abs(k-m)-np.abs(k) - np.abs(m))) \
+                                    *self.expansionCoeff(n,m) * self.expansionCoeff(j,k) \
+                                    * special.sph_harm(m-k,j+n,polar[1],polar[2]))\
+                                    /((-1)**n * self.expansionCoeff(j+n,m-k) * polar[0]**(j+n+1))
+                        except:
+                            continue
+                target.local_expansion[(j,k)] += L_kj
+        return 
 
-    def shiftLocalExpansion(self,node,moments,L,M):
-        trans_exp = {}
-        polar = self.cart_to_sphere(node.posn)
+    def shiftLocalExpansion(self,target,node,L):
+        #polar = self.cart_to_sphere(np.array(target.posn) - np.array(node.posn))
+        polar = self.cart_to_sphere(np.array(node.posn))
+        if not target.local_expansion:
+            target.local_expansion = {}
+            for l in range(0,L+1):
+                for m in range(-l,l+1):
+                    target.local_expansion[(l,m)] = 0.0      
         for j in range(0,L+1):
             for k in range(-j,j+1):
                 L_kj = 0.0
                 for n in range(j,L+1):
                     for m in range(-n,n+1):
                         try:
-                            top = moments[(n,m)]*1j**((np.abs(m)-np.abs(m-k) - np.abs(k))) \
+                            top = node.moments[(n,m)]*1.0j**((np.abs(m)-np.abs(m-k) - np.abs(k))) \
                                   * self.expansionCoeff(n-j,m-k) * self.expansionCoeff(j,k) \
                                   * special.sph_harm(m-k,n-j,polar[1],polar[2])*polar[0]**(n-j)
                             bot = ((-1)**(n+j) * self.expansionCoeff(n,m))
                             L_kj += top/bot
                         except:
                             continue
-                trans_exp[(j,k)] = L_kj
-        return trans_exp
-
+                target.local_expansion[(j,k)] += L_kj
+        return 
 
     """
     Potential Evaluation
     """
-    def evalpotential(self,node,evalPosn, L):
-        p1 = self.cart_to_sphere(node.posn)
-        p2 = self.cart_to_sphere(evalPosn)
-        pot = np.sum([np.sum([node.moments[(l,m)] * special.sph_harm(m,l,p2[1],p2[2]) * p2[0]**l for m in range(-l,l+1)]) for l in range(0,L+1)])
-        return pot
-
     def potentialExpansion(self,node,evalPosn, L):
-        p1 = self.cart_to_sphere(node.posn)
         p2 = self.cart_to_sphere(evalPosn)
         pot = {}
         for l in range(0,L+1):
             for m in range(-l,l+1):
-                pot[(l,m)] = node.moments[(l,m)] * special.sph_harm(m,l,p2[1],p2[2]) * p2[0]**l
+                pot[(l,m)] = node.local_expansion[(l,m)] * special.sph_harm(m,l,p2[1],p2[2]) * p2[0]**l
         return pot
     
-    def updateAccel(self,node,L):
-        if not node.isLeaf:
-            return
-        for p in node.data:
-            pot = self.potentialExpansion(node,p.posn,L)
-            p.accel = (np.real(pot[(1,1)]),pot[(1,0)],pot[(1,-1)])
-
-    def computeForce(self,node,L,M):
+    def computeForce(self,node,eps,L):
         if node.isLeaf:
-            self.updateAccel(node,L)
+            for p in node.data:
+                #print p.accel
+                pot = self.potentialExpansion(node,p.posn,L)
+                #print pot[(0,0)]
+                p.addToAccel(-1.0* np.array([np.real(pot[(1,1)]),np.imag(pot[(1,1)]),np.real(pot[(1,0)])]))
             return
-        for branch in node.branches:
+        else:
+            for branch in node.branches:
+                if branch is not None:
+                    self.computeForce(branch,eps,L)
+
+    def directForce(self,p1,p2):
+        fij = np.zeros(3)
+        if self.posnComp(p1.posn,p2.posn):
+            return fij
+        scalar = p1.mass / (np.linalg.norm(np.array(p2.posn).copy() - np.array(p1.posn).copy())**2.0 + self.s_soft**2.0)**(1.5)
+        fij = -1.0*(np.array(p2.posn).copy() - np.array(p1.posn).copy()) * scalar
+        return fij.copy()
+    
+    def downwardExpansionTree(self,root,eps,L):
+        for branch in root.branches:
             if branch is not None:
-                self.computeForce(branch,L,M)  
+                self.multipoleExpand(branch,root.branches,eps,L)
+                
+
+                
+    def posnComp(self,tuple1,tuple2):
+        if tuple1[0] == tuple2[0] and tuple1[1] == tuple2[1] and tuple1[2] == tuple2[2]:
+            return True
+        else:
+            return False

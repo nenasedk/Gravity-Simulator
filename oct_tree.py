@@ -1,12 +1,22 @@
 import numpy as np
 class Particle:
-    def __init__(self,posn,velocity,mass,accel = np.array([0.0,0.0,0.0])):
+    def __init__(self,posn,velocity,mass,accel = None,error = None):
         self.posn = posn
         self.velocity = velocity
         self.mass = mass
-        self.accel = accel
+        self.accel = None
+        self.error = 0.0
+        
+        if accel is None:
+            self.accel = np.zeros(3)
+        else:
+            self.accel = accel
+        if error is not None:
+            self.error = error
         return
     
+    def addToAccel(self,a):
+        self.accel += a.copy()
 class Node:
     def __init__(self,posn,size,particles, parent = None):
         self.posn = posn
@@ -20,7 +30,7 @@ class Node:
             self.mass = particles.mass
         self.CoM = None
         self.moments = None
-
+        self.local_expansion = None
         self.parent = parent
         self.branches = [None,None,None,None,None,None,None,None]
         self.isLeaf = True

@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import time as t
 #import os
 #import sys
-"""
+
 soft_scale = 100.0
 def plummerdens(d0,r0,r):
     d = d0/(1 + (r**2 / (20 * r0**2)))
@@ -13,7 +13,24 @@ def plummerdens(d0,r0,r):
 def Hernquist(M,a,r):
     d = M/(2*np.pi) *(a/r) * 1/(r + a)**3
     return d
+def NewtonForce(mass,rad):
+    force = mass/rad**2.0
+    return force
 
+def Mass(dens,rad):
+    mass = np.zeros(rad.shape)
+    for i in range(1,len(rad)):
+        mass[i] = mass[i-1] + dens[i]*(4.0/3.0)*np.pi*rad[i]**3.0
+    return mass
+nBody = DirectNBody()
+nBody.set_variables()
+nBody.set_nParticles(1000)
+polar = nBody.cart_to_sphere(nBody.posn)
+eps = np.std(polar[:,0])
+tcross = nBody.crossing_time(nBody.mass,nBody.posn,nBody.vels)
+trel = nBody.relaxation_time(nBody.nParticles,tcross)
+print tcross,trel
+"""
 nBody = DirectNBody()
 nBody.set_variables()
 nBody.set_nParticles(1000)
@@ -33,44 +50,68 @@ for i in range(0,len(force2)):
     myFile.write(ostring)
 myFile.close()
 """
-
+"""
 fig,ax = plt.subplots(figsize = (12,8))
+
 filedir = "1sigma/"
+filename = "small_force_50010.txt"
 time = []
 n = []
-for filename in os.listdir(filedir):
-    with open(filedir + filename) as f:
-        header = list(map(float,f.readline().split(',')))
-        f.close()
-    #sp = filename.split('_')
-    #sp2 = sp[3].split('t')
-    data = np.genfromtxt(filedir+filename,delimiter = ',',skip_header =1)
-   
-    force = np.array([data[:,0],data[:,1],data[:,2]]).T
-    n.append(header[0])
-    time.append(header[1])
-        
-    radius = data[:,3]
-    #f = -1*np.linalg.norm(force2,axis = 1)
-    #ax.scatter(radius,np.linalg.norm(force,axis = 1),marker = '.', s = 2,label = str(len(force)) + " Particles",linewidth = 3)
-    #ax.scatter(radius,np.linalg.norm(force,axis = 1),marker = '.', s = 2,label =  sp2[0][:-1],linewidth = 3)
+#for filename in os.listdir(filedir):
+#with open(filedir + filename) as f:
+#    header = list(map(float,f.readline().split(',')))
+#f.close()
+#sp = filename.split('_')
+#sp2 = sp[3].split('t')
+data = np.genfromtxt(filedir+filename,delimiter = ',',skip_header =1)
+
+force = np.array([data[:,0],data[:,1],data[:,2]]).T
+f1d = np.linalg.norm(force,axis = 1)
+f1d = f1d/np.max(f1d)
+
+
+#n.append(header[0])
+#time.append(header[1])
+radius = data[:,3]
+rads = np.linspace(0.0001,200.0,100000)
+dens = Hernquist(1,8,rads)
+#pdens = plummerdens(1.0,0.01,rads)
+mass = Mass(pdens,rads)
+fan = NewtonForce(mass,rads)
+f1d = f1d*np.max(fan)
+
+#f = -1*np.linalg.norm(force2,axis = 1)
+ax.scatter(radius,-1*f1d,marker = '.', s = 2,label = str(len(force)) + " Particles",linewidth = 3,c =u'#ff7f0e' )
+ax.plot(rads,-1*fan)
+ax.set_xlim(0,200)
+ax.set_title("Normalised numerical force compared to analytical model over Hernquist distribution",fontsize = 20)
+ax.set_xlabel("Radius",fontsize = 16)
+ax.set_ylabel("Normalised Force",fontsize = 16)
+#ax.scatter(radius,np.linalg.norm(force,axis = 1),marker = '.', s = 2,label =  sp2[0][:-1],linewidth = 3)
+plt.show()
+"""
+"""
 y = [x for _,x in sorted(zip(n,time))]
 
-fit = np.polyfit(np.array(sorted(n)),np.array(y),2)
-fitfn = np.poly1d(fit)
-ti = np.linspace(10.0,max(n),500000)
-ax.scatter(sorted(n),y,marker = '.',s = 25,linewidth = 2, c = u'#ff7f0e')
-ax.plot(ti,fitfn(ti))
+data = np.genfromtxt("mpole_test_out.txt",delimiter = ' ')
+force = np.array([data[:,0],data[:,1],data[:,2]]).T
+posns = np.array([data[:,3],data[:,4],data[:,5]]).T
+rads = np.sqrt(posns[:,0]**2 + posns[:,1]**2 + posns[:,2]**2)
+#fit = np.polyfit(np.array(sorted(n)),np.array(y),2)
+#fitfn = np.poly1d(fit)
+#ti = np.linspace(10.0,max(n),500000)
+#ax.scatter(sorted(n),y,marker = '.',s = 25,linewidth = 2, c = u'#ff7f0e')
+#ax.plot(ti,fitfn(ti))
+ax.scatter(rads,np.linalg.norm(force, axis = 1))
 #ax.set_xlim(0,40)
-ax.set_yscale("log")
-ax.set_ylim(1e-4,5e5)
+#ax.set_yscale("log")
+#ax.set_ylim(1e-4,5e5)
 ax.set_title("O(N$^{2}$) runtime for direct n-body force calculation with quadratic fit")
 ax.set_xlabel("Number of Particles")
 ax.set_ylabel("Run time [s]")
 #ax.legend(title = "Softening",loc = 'upper right')
 plt.show()
 
-'''
 lin_rad,lin_density,lin_err,s_coords = nBody.density(nBody.mass,nBody.posn,5001,False)
 log_rad,log_density,log_err,a = nBody.density(nBody.mass,nBody.posn,25,True)
 h_rad,h_density,h_err,b = nBody.density(nBody.mass,nBody.posn,5000,False,True)
@@ -121,4 +162,4 @@ ax.set_xlabel("Normalised Radius",fontsize = 18)
 ax.set_ylabel("Normalised Density",fontsize = 18)
 ax.set_xscale("log")
 plt.show()
-'''
+"""
